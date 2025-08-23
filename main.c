@@ -1,3 +1,5 @@
+// greek dictionary: Σ∂Δδ∇
+
 #include <math.h>
 #include <stdio.h>
 #include <assert.h>
@@ -14,6 +16,11 @@
 #define HOR_COST (RADIUS * 2 + 250)
 #define VER_COST (RADIUS * 2 + 50)
 #define LINE_THICKNESS 3
+
+int rnd() {
+	srand(time(NULL));
+	return rand();
+}
 
 typedef struct {
 	size_t *layers;
@@ -80,9 +87,25 @@ DrawNeurons(Network *net) {
 	printf("DrawNeurons :: took %fµs\n", (float)(end - start));
 }
 
-float
+inline float
+sigmoid_prime(float x) {
+	float expo = exp(-x);
+	return expo / ((1 + expo) * (1 + expo));
+}
+
+inline float
 sigmoid(float x) {
 	return 1 / (1 + exp(-x));
+}
+
+inline float
+*v_sigmoid(float *x) {
+	float *a = NULL;
+	arrsetlen(a, arrlen(x));
+	for (int i = 0; i < arrlen(x); ++i) {
+		a[i] = sigmoid(x[i]);
+	}
+	return a;
 }
 
 float
@@ -90,22 +113,17 @@ float
 	assert(arrlen(data) == net->layers[0] && "input's length must match input layer's");
 	for (int l = 1; l < arrlen(net->layers); ++l) {
 		float *output = NULL;
-		for (int n = 0; n < net->layers[l]; ++n) {
-			float sum = net->biases[l][n]; // b
-			for (int pn = 0; pn < net->layers[l-1]; ++pn) {
-				sum += data[pn] * net->weights[l-1][n][pn]; // Σ (Wjk * Ak) where k(L-1) connects j(L)
+		for (int nn = 0; nn < net->layers[l]; ++nn) {
+			float sum = net->biases[l][nn];
+			for (int n = 0; n < net->layers[l-1]; ++n) {
+				sum += data[n] * net->weights[l][nn][n];
 			}
-			arrpush(output, sum);
+			arrpush(output, sigmoid(sum));
 		}
 		arrfree(data);
 		data = output;
 	}
 	return data;
-}
-
-int rnd() {
-	srand(time(NULL));
-	return rand();
 }
 
 void
@@ -131,11 +149,88 @@ float
 }
 
 void
-backprop(float *x, float *y) {
-	abort();
+backprop(Network *net, float *x, float *y, float ***nabla_w_x, float **nabla_b_x) {
+/*
+foreach test input we want to calculate the change of each weight and bias:
+	∇C = (∂C/∂W, ∂C/∂B)
+
+for l > 1: δl = ∂C/∂Z(l)
+1) δL = hadamard(y - aL, sigma_prime(zL))
+2) for l < L: δ(l) = hadamard(dot(W(l+1), δ(l+1)), sigma_prime(Z(l)))
+
+-- finally --
+given Z(l) = dot(W(l), A(l-1)) + B(l) we conclude:
+     	∂C/∂W(l) = hadamard(δ(l), A(l-1)) ... (1)
+also:
+     	∂C/∂B(l) = δ(l) ... (2)
+hence:
+   	∇C(l) = (∂C/∂W(l), ∂C/∂B(l))
+do that foreach l > 1 and you get ∇C for a specific test input.
+*/
+	size_t L = arrlen(net->layers);
+        float **Z = NULL; // @heap_allocated list to store all the z vectors, layer by layer
+        float **A= NULL; // @heap_allocated
+        float *a = x;
+	arrpush(A, a);
+	for (int l = 0; l < L - 1; ++l) {
+		float **w_l = net->weights[l];
+		float *b_l = net->biases[l];
+		float *z = NULL; // @heap_allocated
+		// calculate weighted sum: matrix_vector_mul, vector_add
+		for (int nn = 0; nn < net->layers[l+1]; ++nn) {
+			float sum = b_l[nn];
+			for (int n = 0; n < net->layers[l]; ++n) {
+				sum += a[n] * w_l[nn][n];
+			}
+			arrpush(z, sum);
+		}
+		arrpush(Z, z);
+		a = v_sigmoid(z);
+		arrpush(A, a);
+	}
+
+	// δL = hadamard(y - aL, sigma_prime(zL))
+	float *delta_L = NULL; // @heap_allocated
+	arrsetlen(delta_L, arrlen(y));
+	for (int o = 0; o < arrlen(y); ++o) {
+		delta_L[o] = (y[o] - A[L-1][o]) * sigmoid_prime(Z[L-1][o]);
+	}
+	nabla_b_x[L-1] = delta_L;
+
+	arrsetlen(nabla_b_x, L); // @heap_allocated
+	arrsetlen(nabla_w_x, L); // @heap_allocated
+
+	// for l < L: δ(l) = hadamard(dot(W(l+1), δ(l+1)), sigma_prime(Z(l)))
+	float *delta = delta_L;
+	for (int l = L-2; l > 1; --l) {
+		float *new_delta = NULL;
+		// dot(W(l+1), δ(l+1)
+		for (int j = 0; j < net->layers[l+1]; ++j) {
+			float sum = 0.0f;
+			for (int k = 0; k < net->layers[l]; ++k) {
+				sum += delta[k] * net->weights[l+1][j][k];
+			}
+			arrpush(new_delta, sum);
+		}
+		// hadamard(new_data, sigma_prime(Z(l)))
+		for (int o = 0; o < arrlen(y); ++o) {
+			new_delta[o] *= sigmoid_prime(Z[l][o]);
+		}
+		// ∂C/∂W(l)(jk) = δ(l)(j) * A(l-1)(k)
+		float *matrix = NULL;
+		arrsetlen(matrix, net->weights[l]);
+		for (int j = 0; j < arrlen(net->weights[l]); ++j) {
+			float *vector = NULL;
+			for (int k = 0; k < arrlen(net->weights[l][j]); ++k) {
+				arrpush(vector, new_delta[j] * A[l-1][j]);
+			}
+		}
+		// ∂C/∂B(l) = δL
+		nabla_b_x[l] = delta = new_delta;
+	}
 }
 
-// mini_batch = [[x, y], [x', y'], ...]
+// mini_batch = [x, y, x', y'], ...]
 void
 update_mini_batch(Network *net, float *mini_batch, float eta) {
 	float **nabla_b = NULL;
@@ -143,7 +238,7 @@ update_mini_batch(Network *net, float *mini_batch, float eta) {
 	assert(arrlen(mini_batch) % 2 == 0);
 	for (int b = 0; b < arrlen(mini_batch); b += 2) {
 		float x = mini_batch[b], y = mini_batch[b + 1];
-		backprop(x, y);
+		backprop(net, x, y, nabla_w, nabla_b);
 	}
 	for (int bl = 0; bl < arrlen(net->biases); ++bl) {
 		for (int b = 0; b < arrlen(net->biases[bl]); ++b) {
