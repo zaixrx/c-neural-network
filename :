@@ -23,10 +23,6 @@ int rnd() {
 }
 
 typedef struct {
-	float *x, *y;
-} Batch;
-
-typedef struct {
 	size_t *layers;
 	float **biases;
 	float ***weights;
@@ -152,6 +148,8 @@ float
 	return NULL;
 }
 
+void
+backprop(Network *net, float *x, float *y, float ***nabla_w_x, float **nabla_b_x) {
 /*
 foreach test input we want to calculate the change of each weight and bias:
 	∇C = (∂C/∂W, ∂C/∂B)
@@ -169,56 +167,67 @@ hence:
    	∇C(l) = (∂C/∂W(l), ∂C/∂B(l))
 do that foreach l > 1 and you get ∇C for a specific test input.
 */
-void
-backprop(Network *net, Batch batch, float ***nabla_w, float **nabla_b) {
-	float *x = batch.x, *y = batch.y;
 	size_t L = arrlen(net->layers);
-        float **A = NULL, **Z = NULL, *a = NULL, *z = NULL; // @heap_allocated
-	arrpush(A, a = x);
-	for (int l = 1; l < L; ++l) {
+        float **Z = NULL; // @heap_allocated list to store all the z vectors, layer by layer
+        float **A= NULL; // @heap_allocated
+        float *a = x;
+	arrpush(A, a);
+	for (int l = 0; l < L - 1; ++l) {
+		float **w_l = net->weights[l];
+		float *b_l = net->biases[l];
+		float *z = NULL; // @heap_allocated
 		// calculate weighted sum: matrix_vector_mul, vector_add
-		for (int j = 0; j < net->layers[l]; ++j) {
-			float sum = net->biases[l][j];
-			for (int k = 0; k < net->layers[l-1]; ++k) {
-				sum += a[k] * net->weights[l][j][k];
+		for (int nn = 0; nn < net->layers[l+1]; ++nn) {
+			float sum = b_l[nn];
+			for (int n = 0; n < net->layers[l]; ++n) {
+				sum += a[n] * w_l[nn][n];
 			}
 			arrpush(z, sum);
 		}
 		arrpush(Z, z);
-		arrpush(A, a = v_sigmoid(z));
+		a = v_sigmoid(z);
+		arrpush(A, a);
 	}
+
 	// δL = hadamard(y - aL, sigma_prime(zL))
-	float *deltas = NULL;
-	for (int j = 0; j < net->layers[L-1]; ++j) {
-		float delta = (y[j] - A[L-1][j]) * sigmoid_prime(Z[L-1][j]);
-		for (int k = 0; k < net->layers[L-2]; ++k) {
-			nabla_w[L-1][j][k] += delta * A[L-2][k];
-		}
-		nabla_b[L-1][j] += delta;
-		arrpush(deltas, delta);
+	float *delta_L = NULL; // @heap_allocated
+	arrsetlen(delta_L, arrlen(y));
+	for (int o = 0; o < arrlen(y); ++o) {
+		delta_L[o] = (y[o] - A[L-1][o]) * sigmoid_prime(Z[L-1][o]);
 	}
+	nabla_b_x[L-1] = delta_L;
+
+	arrsetlen(nabla_b_x, L); // @heap_allocated
+	arrsetlen(nabla_w_x, L); // @heap_allocated
+
 	// for l < L: δ(l) = hadamard(dot(W(l+1), δ(l+1)), sigma_prime(Z(l)))
+	float *delta = delta_L;
 	for (int l = L-2; l > 1; --l) {
-		float *new_deltas = NULL;
+		float *new_delta = NULL;
+		// dot(W(l+1), δ(l+1)
 		for (int j = 0; j < net->layers[l+1]; ++j) {
-			float delta = 0.0f;
+			float sum = 0.0f;
 			for (int k = 0; k < net->layers[l]; ++k) {
-				delta += deltas[k] * net->weights[l+1][j][k];
+				sum += delta[k] * net->weights[l+1][j][k];
 			}
-			delta *= sigmoid_prime(Z[l][j]);
-			// update weights and biases gradients
-			for (int k = 0; k < net->layers[l]; ++k) {
-				nabla_w[l][j][k] += delta * A[l][k];
-			}
-			nabla_b[L-1][j] += delta;
-			arrpush(new_deltas, delta);
+			arrpush(new_delta, sum);
 		}
-		arrfree(deltas);
-		deltas = new_deltas;
+		// hadamard(new_data, sigma_prime(Z(l)))
+		for (int o = 0; o < arrlen(y); ++o) {
+			new_delta[o] *= sigmoid_prime(Z[l][o]);
+		}
+		// ∂C/∂W(l)(jk) = δ(l)(j) * A(l-1)(k)
+		float *matrix = NULL;
+		arrsetlen(matrix, net->weights[l]);
+		for (int j = 0; j < arrlen(net->weights[l]); ++j) {
+			float *vector = NULL;
+			for (int k = 0; k < arrlen(net->weights[l][j]); ++k) {
+				arrpush(vector, new_delta[j] * A[l-1][j]);
+			}
+		}
+		// ∂C/∂B(l) = δL
+		nabla_b_x[l] = delta = new_delta;
 	}
-	arrfree(deltas);
-	// narrfree(A, 2);
-	// narrfree(Z, 2);
 }
 
 // mini_batch = [
@@ -226,37 +235,25 @@ backprop(Network *net, Batch batch, float ***nabla_w, float **nabla_b) {
 // 	batch: [x, y, x', y' ...],
 // ]
 void
-update_mini_batch(Network *net, Batch *mbs, float eta) {
-	float **nabla_b = NULL, ***nabla_w = NULL;
-	// initialization
-	arrsetlen(nabla_b, arrlen(net->layers));
-	arrsetlen(nabla_w, arrlen(net->layers));
-	for (int l = 1; l < arrlen(net->layers); ++l) {
-		arrsetlen(nabla_b[l], net->layers[l]);
-		arrsetlen(nabla_w[l], net->layers[l]);
-		for (int j = 0; j < net->layers[l]; ++j) {
-			arrsetlen(nabla_w[l][j], net->layers[l-1]);
-			for (int k = 0; k < net->layers[l-1]; ++k) {
-				nabla_w[l][j][k] = 0;
-			}
-			nabla_b[l][j] = 0;
+update_mini_batch(Network *net, float **mini_batch, float eta) {
+	float **nabla_b = NULL;
+	float ***nabla_w = NULL;
+	assert(arrlen(mini_batch) % 2 == 0);
+	for (int b = 0; b < arrlen(mini_batch); b += 2) {
+		backprop(net, x, y, nabla_w, nabla_b);
+	}
+	for (int bl = 0; bl < arrlen(net->biases); ++bl) {
+		for (int b = 0; b < arrlen(net->biases[bl]); ++b) {
+			net->biases[bl][b] += -eta * 0.5f / arrlen(mini_batch) * nabla_b[bl][b];
 		}
 	}
-	// backpropagation
-	for (int b = 0; b < arrlen(mbs); b += 2) {
-		backprop(net, mbs[b], nabla_w, nabla_b);
-	}
-	// update weights and biases
-	for (int l = 1; l < arrlen(net->layers); ++l) {
-		for (int j = 0; j < net->layers[l]; ++j) {
-			for (int k = 0; k < net->layers[l-1]; ++k) {
-				net->weights[l][j][k] += -eta / arrlen(mbs) * nabla_w[l][j][k];
+	for (int wl= 0; wl < arrlen(net->weights); ++wl) {
+		for (int w = 0; w < arrlen(net->weights[wl]); ++w) {
+			for (int pw = 0; pw < arrlen(net->weights[pw][w]); ++pw) {
+				net->weights[wl][w][pw] += -eta * 0.5f / arrlen(mini_batch) * nabla_w[wl][w][pw];
 			}
-			net->biases[l][j] += -eta / arrlen(mbs) * nabla_b[l][j];
 		}
 	}
-	// narrfree(3, nabla_w);
-	// narrfree(2, nabla_b);
 }
 
 void
