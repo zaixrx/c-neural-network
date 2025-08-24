@@ -6,8 +6,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include "include/raylib.h"
-#define STB_DS_IMPLEMENTATION
-#include "include/stb_ds.h"
+#include "loadmnist.h"
 
 #define WIDTH (1600)
 #define HEIGHT (900)
@@ -21,10 +20,6 @@ int rnd() {
 	srand(time(NULL));
 	return rand();
 }
-
-typedef struct {
-	float *x, *y;
-} Batch;
 
 typedef struct {
 	size_t *layers;
@@ -66,7 +61,6 @@ DrawNeurons(Network *net) {
 	DrawCircle(x, HEIGHT >> 1, RADIUS, RED);
 	for (int l = 0; l < arrlen(net->layers); ++l) {
 		float y = (HEIGHT - (net->layers[l] - 1) * VER_COST) / 2.0f;
-		printf("%f\n", x);
 		for (int n = 0; n < net->layers[l]; ++n) {
 			DrawCircle(x, y, RADIUS, WHITE);
 			if (l + 1 < arrlen(net->layers)) {
@@ -131,20 +125,21 @@ float
 }
 
 void
-shuffle_array(float *arr) {
-	for (int i = 0; i < arrlen(arr); ++i) {
-		int j = rnd() % arrlen(arr);
-		arr[i] += arr[j];
-		arr[j] -= arr[i];
-		arr[i] -= arr[j];
+shuffle_set(SetEntry *set) {
+	SetEntry temp = {0};
+	for (int i = 0; i < arrlen(set); ++i) {
+		int j = rnd() % arrlen(set);
+		temp = set[i];
+		set[i] = set[j];
+		set[j] = temp;
 	}
 }
 
-float
-**generate_mini_batches(float *data, size_t mini_batch_size) {
-	float **mini_batches = NULL;
+SetEntry
+**generate_mini_batches(SetEntry *data, size_t mini_batch_size) {
+	SetEntry **mini_batches = NULL;
 	for (int i = 0; i < arrlen(data); i += mini_batch_size) {
-		float *mini_batch = NULL;
+		SetEntry *mini_batch = NULL;
 		arrsetlen(mini_batch, mini_batch_size);
 		memcpy(mini_batch, data + i, mini_batch_size);
 		arrpush(mini_batches, mini_batch);
@@ -170,7 +165,7 @@ hence:
 do that foreach l > 1 and you get ∇C for a specific test input.
 */
 void
-backprop(Network *net, Batch batch, float ***nabla_w, float **nabla_b) {
+backprop(Network *net, SetEntry *batch, float ***nabla_w, float **nabla_b) {
 	float *x = batch.x, *y = batch.y;
 	size_t L = arrlen(net->layers);
         float **A = NULL, **Z = NULL, *a = NULL, *z = NULL; // @heap_allocated
@@ -226,7 +221,7 @@ backprop(Network *net, Batch batch, float ***nabla_w, float **nabla_b) {
 // 	batch: [x, y, x', y' ...],
 // ]
 void
-update_mini_batch(Network *net, Batch *mbs, float eta) {
+update_mini_batch(Network *net, SetEntry *mini_batch_set, float eta) {
 	float **nabla_b = NULL, ***nabla_w = NULL;
 	// initialization
 	arrsetlen(nabla_b, arrlen(net->layers));
@@ -243,16 +238,16 @@ update_mini_batch(Network *net, Batch *mbs, float eta) {
 		}
 	}
 	// backpropagation
-	for (int b = 0; b < arrlen(mbs); b += 2) {
-		backprop(net, mbs[b], nabla_w, nabla_b);
+	for (int b = 0; b < arrlen(mini_batch_set); b += 2) {
+		backprop(net, mini_batch_set[b], nabla_w, nabla_b);
 	}
 	// update weights and biases
 	for (int l = 1; l < arrlen(net->layers); ++l) {
 		for (int j = 0; j < net->layers[l]; ++j) {
 			for (int k = 0; k < net->layers[l-1]; ++k) {
-				net->weights[l][j][k] += -eta / arrlen(mbs) * nabla_w[l][j][k];
+				net->weights[l][j][k] += -eta / arrlen(mini_batch_set) * nabla_w[l][j][k];
 			}
-			net->biases[l][j] += -eta / arrlen(mbs) * nabla_b[l][j];
+			net->biases[l][j] += -eta / arrlen(mini_batch_set) * nabla_b[l][j];
 		}
 	}
 	// narrfree(3, nabla_w);
@@ -260,11 +255,11 @@ update_mini_batch(Network *net, Batch *mbs, float eta) {
 }
 
 void
-SGD(Network *net, float *training_data, size_t epochs, size_t mini_batch_size, float eta) {
+SGD(Network *net, SetEntry *training_data, size_t epochs, size_t mini_batch_size, float eta) {
 	assert(arrlen(training_data) == net->layers[0] && "training_data's length must match input layer's");
 	for (int e = 0; e < epochs; ++e) {
-		shuffle_array(training_data);
-		float **mini_batches = generate_mini_batches(training_data, mini_batch_size);
+		shuffle_set(training_data);
+		SetEntry **mini_batches = generate_mini_batches(training_data, mini_batch_size);
 		for (int b = 0; b < arrlen(mini_batches); ++b) {
 			update_mini_batch(net, mini_batches[b], eta);
 			arrfree(mini_batches[b]);
@@ -276,27 +271,23 @@ SGD(Network *net, float *training_data, size_t epochs, size_t mini_batch_size, f
 int
 main(void) {
 	Network *net = NULL;
-	{
-		size_t *layers = NULL;
-		arrpush(layers, 5);
-		arrpush(layers, 7);
-		arrpush(layers, 3);
-		arrpush(layers, 8);
-		arrpush(layers, 1);
-		net = new_network(layers);
-	}
+	size_t *layers = NULL;
+	arrpush(layers, 5);
+	arrpush(layers, 7);
+	arrpush(layers, 3);
+	arrpush(layers, 8);
+	arrpush(layers, 1);
+	net = new_network(layers);
 
-	InitWindow(WIDTH, HEIGHT, "Hello World!");
-	SetTargetFPS(1);
-
-    	while (!WindowShouldClose()) {
-    	    	BeginDrawing();
-			ClearBackground(BLACK);
-			DrawNeurons(net);
-    	    	EndDrawing();
-    	}
-
-    	CloseWindow();
+	// InitWindow(WIDTH, HEIGHT, "Hello World!");
+	// SetTargetFPS(1);
+    	// while (!WindowShouldClose()) {
+    	//     	BeginDrawing();
+	// 		ClearBackground(BLACK);
+	// 		DrawNeurons(net);
+    	//     	EndDrawing();
+    	// }
+    	// CloseWindow();
 
     	return 0;
 }
