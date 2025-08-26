@@ -12,20 +12,27 @@ wget https://systemds.apache.org/assets/datasets/mnist/t10k-labels-idx1-ubyte.gz
 #include <stdio.h>
 #include <stdint.h>
 #define STB_DS_IMPLEMENTATION
-#include "include/stb_ds.h"
+#include "stb_ds.h"
 
-#define PATH_TRAIN_IMAGE "./dataset/train-images-idx3-ubyte"
-#define PATH_TRAIN_LABEL "./dataset/train-labels-idx1-ubyte"
+#define TRAIN_SET_IMAGE "./dataset/train-images-idx3-ubyte"
+#define TRAIN_SET_LABEL "./dataset/train-labels-idx1-ubyte"
+#define TRAIN_SET_SIZE 6e4
+#define TEST_SET_IMAGE "./dataset/t10k-images-idx3-ubyte"
+#define TEST_SET_LABEL "./dataset/t10k-labels-idx1-ubyte"
+#define TEST_SET_SIZE 1e4
+#define Y_SIZE 10
 
 typedef struct {
-	uint8_t *x;
-	uint8_t y;
+	float *x;
+	float y;
 } SetEntry;
 
-SetEntry *get_training_set(size_t set_size);
+SetEntry *get_training_set();
+SetEntry *get_test_set();
 
 #endif
 
+#define LOAD_MNIST_IMPLEMENTAION
 #ifdef LOAD_MNIST_IMPLEMENTAION
 typedef struct {
 	uint8_t *buf;
@@ -65,9 +72,10 @@ void parse_digits(parser_t *p, SetEntry *set, size_t set_size) {
 	assert(dims_c == 3 && dims[0] == set_size && dims[1] == 28 && dims[2] == 28);
 	size_t res = dims[1] * dims[2];
 	for (int e = 0; e < dims[0]; ++e) {
-		set[e].x = malloc(res);
-		memcpy(set[e].x, p->buf + p->off, res);
-		p->off += res;
+		set[e].x = NULL;
+		for (int i = 0; i < res; ++i) {
+			arrpush(set[e].x, (float)parser_u8(p) / 255.0);
+		}
 	}
 }
 
@@ -75,18 +83,18 @@ void parse_labels(parser_t *p, SetEntry *set, size_t set_size) {
 	PARSE_HEADER(p);
 	assert(dims_c == 1 && dims[0] == set_size);
 	for (int e = 0; e < dims[0]; ++e) {
-		set[e].y = parser_u8(p);
+		set[e].y = (float)parser_u8(p);
 	}
 }
 
 // @allocated
-void *read_file(char *file_path, size_t *size) {
+uint8_t *read_file(const char *file_path, size_t *size) {
 	FILE *stream = fopen(file_path, "rb");
 	assert(stream != NULL);
 	assert(fseek(stream, 0, SEEK_END) != -1);
 	assert((*size = ftell(stream)) != -1);
 	assert(fseek(stream, 0, SEEK_SET) != -1);
-	void *buf = malloc(*size);
+	uint8_t *buf = (uint8_t*)malloc(*size);
 	assert(fread(buf, 1, *size, stream) != -1);
 	fclose(stream);
 	return buf;
@@ -98,23 +106,31 @@ void reset_parser(parser_t p) {
 	p.size = p.off = 0;
 }
 
-SetEntry *get_training_set(size_t set_size) {
+SetEntry *get_set(const char *image_path, const char *label_path, size_t set_size) {
 	size_t file_size;
 	uint8_t *buf;
 	parser_t parser;
-	SetEntry *entries;
+	SetEntry *entries = NULL;
 	arrsetlen(entries, set_size);
 
-	buf = read_file(PATH_TRAIN_IMAGE, &file_size);
+	buf = read_file(image_path, &file_size);
 	parser.buf = buf; parser.size = file_size;
 	parse_digits(&parser, entries, set_size);
 	reset_parser(parser);
 
-	buf = read_file(PATH_TRAIN_LABEL, &file_size);
+	buf = read_file(label_path, &file_size);
 	parser.buf = buf; parser.size = file_size;
 	parse_labels(&parser, entries, set_size);
 	reset_parser(parser);
 
 	return entries;
+}
+
+SetEntry *get_training_set() {
+	return get_set(TRAIN_SET_IMAGE, TRAIN_SET_LABEL, TRAIN_SET_SIZE);
+}
+
+SetEntry *get_test_set() {
+	return get_set(TEST_SET_IMAGE, TEST_SET_LABEL, TEST_SET_SIZE);
 }
 #endif

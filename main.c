@@ -1,11 +1,10 @@
 // greek dictionary: Σ∂Δδ∇
-
 #include <math.h>
 #include <stdio.h>
 #include <assert.h>
-#include <stdlib.h>
 #include <time.h>
-#include "include/raylib.h"
+#include <stdlib.h>
+#include <stdbool.h>
 #include "loadmnist.h"
 
 #define WIDTH (1600)
@@ -16,25 +15,46 @@
 #define VER_COST (RADIUS * 2 + 50)
 #define LINE_THICKNESS 3
 
-int rnd() {
-	srand(time(NULL));
-	return rand();
-}
-
 typedef struct {
 	size_t *layers;
 	float **biases;
 	float ***weights;
 } Network;
 
-Network *new_network(size_t *layers) {
+int
+rnd() {
+	srand(time(NULL));
+	return rand();
+}
+
+static inline float
+rand_uniform() {
+    return (rand() + 1.0) / (RAND_MAX + 2.0);
+}
+
+// Standard normal via Box-Muller
+float
+randn() {
+    static bool has_spare = 0;
+    static float spare;
+    if (has_spare) return has_spare = false, spare;
+    float u, v;
+    u = rand_uniform();
+    v = rand_uniform();
+    float mag = sqrt(-2.0 * log(u));
+    has_spare = true, spare = mag * sin(2.0 * M_PI * v);
+    return mag * cos(2.0 * M_PI * v);
+}
+
+Network
+*new_network(size_t *layers) {
 	Network *net = malloc(sizeof(Network));
 	net->layers = layers;
 	assert(arrlen(net->layers) >= 2);
 	for (int l = 0; l < arrlen(layers); ++l) {
 		float *biases = NULL;
 		for (int i = 0; i < layers[l]; ++i) {
-			arrpush(biases, 69); // TODO: must be random
+			arrpush(biases, randn());
 		}
 		arrpush(net->biases, biases);
 	}
@@ -43,7 +63,7 @@ Network *new_network(size_t *layers) {
 		for (int j = 0; j < layers[l]; ++j) {
 			float *column = NULL;
 			for (int i = 0; i < layers[l-1]; ++i) {
-				arrpush(column, 69);
+				arrpush(column, randn());
 			}
 			arrpush(matrix, column);
 		}
@@ -52,51 +72,18 @@ Network *new_network(size_t *layers) {
 	return net;
 }
 
-void
-DrawNeurons(Network *net) {
-	static Color rgb[] = { RED, GREEN, BLUE };
-
-	clock_t start = clock();
-	float x = (WIDTH - (arrlen(net->layers) - 1) * HOR_COST) / 2.0f;
-	DrawCircle(x, HEIGHT >> 1, RADIUS, RED);
-	for (int l = 0; l < arrlen(net->layers); ++l) {
-		float y = (HEIGHT - (net->layers[l] - 1) * VER_COST) / 2.0f;
-		for (int n = 0; n < net->layers[l]; ++n) {
-			DrawCircle(x, y, RADIUS, WHITE);
-			if (l + 1 < arrlen(net->layers)) {
-				float ny = (HEIGHT - (net->layers[l+1]-1) * VER_COST) / 2.0f;
-				for (int nn = 0; nn < net->layers[l+1]; ++nn) {
-					DrawLineEx(
-						(Vector2){x + RADIUS, y},
-						(Vector2){x + HOR_COST - RADIUS, ny},
-						LINE_THICKNESS,
-						rgb[l % 3]
-					);
-					ny += VER_COST;
-				}
-			}
-			y += VER_COST;
-		}
-		x += HOR_COST;
-	}
-	DrawCircle(x, HEIGHT >> 1, RADIUS, RED);
-	clock_t end = clock();
-
-	printf("DrawNeurons :: took %fµs\n", (float)(end - start));
-}
-
-inline float
+static inline float
 sigmoid_prime(float x) {
 	float expo = exp(-x);
 	return expo / ((1 + expo) * (1 + expo));
 }
 
-inline float
+static inline float
 sigmoid(float x) {
 	return 1 / (1 + exp(-x));
 }
 
-inline float
+static inline float
 *v_sigmoid(float *x) {
 	float *a = NULL;
 	arrsetlen(a, arrlen(x));
@@ -136,42 +123,27 @@ shuffle_set(SetEntry *set) {
 }
 
 SetEntry
-**generate_mini_batches(SetEntry *data, size_t mini_batch_size) {
-	SetEntry **mini_batches = NULL;
-	for (int i = 0; i < arrlen(data); i += mini_batch_size) {
+**generate_mini_batches(SetEntry *set, size_t mini_batch_size) {
+	SetEntry **mini_batch_list = NULL;
+	for (size_t i = 0, b = 0; i + mini_batch_size < arrlen(set); i += mini_batch_size) {
 		SetEntry *mini_batch = NULL;
-		arrsetlen(mini_batch, mini_batch_size);
-		memcpy(mini_batch, data + i, mini_batch_size);
-		arrpush(mini_batches, mini_batch);
+		for (int j = 0; j < mini_batch_size; ++j) {
+			arrpush(mini_batch, set[i + j]);
+		}
+		// printf("%zu: %zu\n", i, arrlen(mini_batch));
+		arrpush(mini_batch_list, mini_batch);
 	}
-	return NULL;
+	return mini_batch_list;
 }
 
-/*
-foreach test input we want to calculate the change of each weight and bias:
-	∇C = (∂C/∂W, ∂C/∂B)
-
-for l > 1: δl = ∂C/∂Z(l)
-1) δL = hadamard(y - aL, sigma_prime(zL))
-2) for l < L: δ(l) = hadamard(dot(W(l+1), δ(l+1)), sigma_prime(Z(l)))
-
--- finally --
-given Z(l) = dot(W(l), A(l-1)) + B(l) we conclude:
-     	∂C/∂W(l) = hadamard(δ(l), A(l-1)) ... (1)
-also:
-     	∂C/∂B(l) = δ(l) ... (2)
-hence:
-   	∇C(l) = (∂C/∂W(l), ∂C/∂B(l))
-do that foreach l > 1 and you get ∇C for a specific test input.
-*/
 void
-backprop(Network *net, SetEntry *batch, float ***nabla_w, float **nabla_b) {
-	float *x = batch.x, *y = batch.y;
+backprop(Network *net, SetEntry entry, float ***nabla_w, float **nabla_b) {
+        float **A = NULL, **Z = NULL, *a, *z; // @heap_allocated
 	size_t L = arrlen(net->layers);
-        float **A = NULL, **Z = NULL, *a = NULL, *z = NULL; // @heap_allocated
-	arrpush(A, a = x);
+	arrpush(Z, z = NULL);
+	arrpush(A, a = entry.x);
 	for (int l = 1; l < L; ++l) {
-		// calculate weighted sum: matrix_vector_mul, vector_add
+		z = NULL;
 		for (int j = 0; j < net->layers[l]; ++j) {
 			float sum = net->biases[l][j];
 			for (int k = 0; k < net->layers[l-1]; ++k) {
@@ -182,44 +154,39 @@ backprop(Network *net, SetEntry *batch, float ***nabla_w, float **nabla_b) {
 		arrpush(Z, z);
 		arrpush(A, a = v_sigmoid(z));
 	}
-	// δL = hadamard(y - aL, sigma_prime(zL))
 	float *deltas = NULL;
-	for (int j = 0; j < net->layers[L-1]; ++j) {
-		float delta = (y[j] - A[L-1][j]) * sigmoid_prime(Z[L-1][j]);
-		for (int k = 0; k < net->layers[L-2]; ++k) {
-			nabla_w[L-1][j][k] += delta * A[L-2][k];
-		}
-		nabla_b[L-1][j] += delta;
-		arrpush(deltas, delta);
-	}
-	// for l < L: δ(l) = hadamard(dot(W(l+1), δ(l+1)), sigma_prime(Z(l)))
-	for (int l = L-2; l > 1; --l) {
-		float *new_deltas = NULL;
-		for (int j = 0; j < net->layers[l+1]; ++j) {
-			float delta = 0.0f;
-			for (int k = 0; k < net->layers[l]; ++k) {
-				delta += deltas[k] * net->weights[l+1][j][k];
+	for (int l = L - 1; l >= 1; --l) {
+		if (l == L - 1)
+			for (int j = 0; j < net->layers[l]; ++j) {
+				float y = (int)entry.y == j + 1;
+				float delta = (y - A[l][j]) * sigmoid_prime(Z[l][j]);
+				arrpush(deltas, delta);
 			}
-			delta *= sigmoid_prime(Z[l][j]);
-			// update weights and biases gradients
-			for (int k = 0; k < net->layers[l]; ++k) {
-				nabla_w[l][j][k] += delta * A[l][k];
+		else {
+			float *new_deltas = NULL;
+			for (int j = 0; j < net->layers[l+1]; ++j) {
+				float delta = 0.0f;
+				for (int k = 0; k < net->layers[l]; ++k) {
+					delta += deltas[j] * net->weights[l+1][j][k];
+				}
+				delta *= sigmoid_prime(Z[l][j]);
+				arrpush(new_deltas, delta);
 			}
-			nabla_b[L-1][j] += delta;
-			arrpush(new_deltas, delta);
+			arrfree(deltas);
+			deltas = new_deltas;
 		}
-		arrfree(deltas);
-		deltas = new_deltas;
+		for (int j = 0; j < net->layers[l]; ++j) {
+			for (int k = 0; k < net->layers[l-1]; ++k) {
+				nabla_w[l][j][k] += deltas[j] * A[l][k];
+			}
+			nabla_b[l][j] += deltas[j];
+		}
 	}
 	arrfree(deltas);
 	// narrfree(A, 2);
 	// narrfree(Z, 2);
 }
 
-// mini_batch = [
-// 	batch: [x, y, x', y' ...],
-// 	batch: [x, y, x', y' ...],
-// ]
 void
 update_mini_batch(Network *net, SetEntry *mini_batch_set, float eta) {
 	float **nabla_b = NULL, ***nabla_w = NULL;
@@ -238,7 +205,7 @@ update_mini_batch(Network *net, SetEntry *mini_batch_set, float eta) {
 		}
 	}
 	// backpropagation
-	for (int b = 0; b < arrlen(mini_batch_set); b += 2) {
+	for (int b = 0; b < arrlen(mini_batch_set); ++b) {
 		backprop(net, mini_batch_set[b], nabla_w, nabla_b);
 	}
 	// update weights and biases
@@ -255,9 +222,8 @@ update_mini_batch(Network *net, SetEntry *mini_batch_set, float eta) {
 }
 
 void
-SGD(Network *net, SetEntry *training_data, size_t epochs, size_t mini_batch_size, float eta) {
-	assert(arrlen(training_data) == net->layers[0] && "training_data's length must match input layer's");
-	for (int e = 0; e < epochs; ++e) {
+SGD(Network *net, SetEntry *training_data, size_t epochs, size_t mini_batch_size, float eta, SetEntry *test_data) {
+	for (size_t e = 0; e < epochs; ++e) {
 		shuffle_set(training_data);
 		SetEntry **mini_batches = generate_mini_batches(training_data, mini_batch_size);
 		for (int b = 0; b < arrlen(mini_batches); ++b) {
@@ -265,6 +231,17 @@ SGD(Network *net, SetEntry *training_data, size_t epochs, size_t mini_batch_size
 			arrfree(mini_batches[b]);
 		}
 		arrfree(mini_batches);
+		printf("Epoch %zu / %zu\n", e, epochs);
+		if (test_data == NULL) continue;
+		size_t sucess, total;
+		for (sucess = 0, total = 0; total < arrlen(test_data); ++total) {
+			float *res = feed_forward(net, test_data[total].x);
+			size_t max = 0, expect = (int)test_data[total].y - 1;
+			for (size_t j = 0; j < arrlen(res); ++j) { if (res[total] > res[max]) max = total; }
+			if (max == expect) ++sucess;
+			arrfree(res);
+		}
+		printf("Score: %zu / %zu\n", sucess, total);
 	}
 }
 
@@ -278,16 +255,10 @@ main(void) {
 	arrpush(layers, 8);
 	arrpush(layers, 1);
 	net = new_network(layers);
-
-	// InitWindow(WIDTH, HEIGHT, "Hello World!");
-	// SetTargetFPS(1);
-    	// while (!WindowShouldClose()) {
-    	//     	BeginDrawing();
-	// 		ClearBackground(BLACK);
-	// 		DrawNeurons(net);
-    	//     	EndDrawing();
-    	// }
-    	// CloseWindow();
+	
+	SetEntry *training_set = get_training_set();
+	SetEntry *test_set = get_test_set();
+	SGD(net, training_set, 10, 30, 3.0F, test_set);
 
     	return 0;
 }
