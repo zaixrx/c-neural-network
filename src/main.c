@@ -9,11 +9,11 @@ int main(void) {
 	size_t *sizes = NULL;
 	arrsetlen(sizes, 3);
 	sizes[0] = 28 * 28;
-	sizes[1] = 30;
+	sizes[1] = 10;
 	sizes[2] = 10;
 	Network *net = network_create(sizes);
 	DataEntry *training_set = load_training_set();
 	DataEntry *test_set= load_training_set();
-	network_SGD(net, 10, 50, 3.0, training_set, test_set);
+	network_SGD(net, 10, 10, 3.0, training_set, test_set);
 	network_destroy(net);
 }

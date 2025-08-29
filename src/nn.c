@@ -79,26 +79,39 @@ void network_SGD(Network *net, size_t epochs, size_t batch_size, double lrate, D
 	for (size_t e = 0; e < epochs; ++e) {
 		shuffle_set(training_set);
 		DataEntry **batches = get_batches_from_set(training_set, batch_size);
+		printf("DEBUG :: analysing %zu batches\n", arrlen(batches));
+		clock_t start = clock();
 		for (size_t b = 0; b < arrlen(batches); ++b) {
-			DataEntry *batch = batches[b];
-			network_update_batch(net, batch, lrate);
-			free(batch);
+			network_update_batch(net, batches[b], lrate);
+			// free(batch);
 		}
+		printf("DEBUG :: took: %lfs\n", (double)(clock()-start)/CLOCKS_PER_SEC);
 		arrfree(batches);
 		if (test_set) {
 			size_t t, ts; // test, test_success
 			for (t = 0, ts = 0; t < arrlen(test_set); ++t) {
 				ts += network_test(net, test_set[t]);
 			}
-			printf("Epoch %zu: %zu/%zu\n", e, t, ts);
+			printf("INFO :: Epoch %zu: %zu/%zu\n", e, ts, t);
 			continue;
 		}
-		printf("Epoch %zu\n", e);
+		printf("INFO :: Epoch %zu\n", e);
 	}
 }
 
 int network_test(Network *net, DataEntry entry) {
-	TODO("network_test");
+	vec_t y = entry.x;
+	vec_t *Y = new_vec_arr(net->sizes);
+	for (size_t l = 0; l < arrlen(Y); ++l) {
+		mat_vec_dot(Y[l], net->weights[l], y);
+		vec_operate(Y[l], 1, (VecOp){ ADD, net->biases[l] });
+		y = Y[l];
+	}
+	size_t max = 0;
+	for (size_t i = 1; i < arrlen(y); ++i) if (y[i] > y[max]) max = i;
+	int ret = entry.y[max] >= 1;
+	free_vec_arr(Y);
+	return ret;
 }
 
 void network_update_batch(Network *net, DataEntry *batch, double lrate) {
@@ -111,9 +124,12 @@ void network_update_batch(Network *net, DataEntry *batch, double lrate) {
 		network_backprop(net, batch[b], grad_weights, grad_biases);
 	}
 	
-	TODO("// correct with gradients");
-	(void)"net->weights = net->weights - (lrate / arrlen(batch)) * grad_weights";
-	(void)"net->biases = net->biases - (lrate / arrlen(batch)) * grad_biases";
+	for (size_t l = 0; l < arrlen(net->sizes)-1; ++l) {
+		mat_scale(grad_weights[l], -(lrate / arrlen(batch)));
+		vec_scale(grad_biases[l], -(lrate / arrlen(batch)));
+		mat_operate(net->weights[l], 1, (MatOp){ ADD, grad_weights[l] });
+		vec_operate(net->biases[l], 1, (VecOp){ ADD, grad_biases[l] });
+	}
 
 	// free gradients
 	free_mat_arr(grad_weights);
@@ -135,18 +151,6 @@ static void sigmoid_prime(vec_t src, vec_t dst) {
 	}
 }
 
-void vec_print_dims(void *vec) {
-	printf("arr.len(): %zu\n", arrlen(vec));
-}
-
-void mat_print_dims(void **mat) {
-	printf("mat.len(): %zu\n[\n", arrlen(mat));
-	for (size_t i = 0; i < arrlen(mat); ++i) {
-		vec_print_dims(mat[i]);
-	}
-	printf("]\n");
-}
-
 void network_backprop(Network *net, DataEntry entry, mat_t *grad_weights, vec_t *grad_biases) {
 	vec_t *Z = new_vec_arr(net->sizes);
 	vec_t *A = new_vec_arr(net->sizes);
@@ -158,7 +162,6 @@ void network_backprop(Network *net, DataEntry entry, mat_t *grad_weights, vec_t 
 	}
 	// ---------- //
 	vec_t *D = new_vec_arr(net->sizes);
-	mat_print_dims((void**)D);
 	for (ssize_t l = arrlen(D) - 1; l >= 0; --l) {
 		vec_t zp = NULL;
 		arrsetlen(zp, net->sizes[l+1]);
@@ -169,6 +172,7 @@ void network_backprop(Network *net, DataEntry entry, mat_t *grad_weights, vec_t 
 			matT_vec_dot(D[l], net->weights[l+1], D[l+1]);
 		}
 		vec_operate(D[l], 1, (VecOp){ MUL, zp });
+		// update gradients
 		vec_operate(grad_biases[l], 1, (VecOp){ ADD, D[l] }); 
 		vecT_vec_dot(grad_weights[l], l > 0 ? A[l-1] : entry.x, D[l]);
 		arrfree(zp);
@@ -176,5 +180,4 @@ void network_backprop(Network *net, DataEntry entry, mat_t *grad_weights, vec_t 
 	free_vec_arr(Z);
 	free_vec_arr(A);
 	free_vec_arr(D);
-	TODO("network_backprop");
 }
