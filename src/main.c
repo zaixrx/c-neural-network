@@ -13,7 +13,7 @@ int main(void) {
 	sizes[2] = 10;
 	Network *net = network_create(sizes);
 	DataEntry *training_set = load_training_set();
-	DataEntry *test_set= load_training_set();
-	network_SGD(net, 10, 10, 3.0, training_set, test_set);
+	DataEntry *test_set = load_test_set();
+	network_SGD(net, 10, 10, 0.1, training_set, test_set);
 	network_destroy(net);
 }

@@ -7,6 +7,32 @@
 
 #define TODO(message) do { fprintf(stderr, "%s:%d: TODO: %s\n", __FILE__, __LINE__, message); abort(); } while(0)
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <time.h>
+#include <stdbool.h>
+
+static inline double rand_uniform() {
+    return (rand() + 1.0) / (RAND_MAX + 2.0); // avoid 0
+}
+
+// standard normal via Box-Muller
+double randn() {
+    static bool has_spare = 0;
+    static double spare;
+
+    if (has_spare) return has_spare = false, spare;
+
+    double u, v;
+    u = rand_uniform();
+    v = rand_uniform();
+
+    double mag = sqrt(-2.0 * log(u));
+    has_spare = true, spare = mag * sin(2.0 * M_PI * v);
+    return mag * cos(2.0 * M_PI * v);
+}
+
 static mat_t *new_mat_arr(size_t *sizes) {
 	mat_t *arr = NULL;	
 	for (size_t l = 1; l < arrlen(sizes); ++l) {
@@ -43,6 +69,15 @@ Network *network_create(size_t *sizes) {
 	net->sizes = sizes;
 	net->weights = new_mat_arr(sizes);
 	net->biases = new_vec_arr(sizes);
+	srand(time(NULL));
+	for (size_t l = 0; l < arrlen(net->weights); ++l) {
+		for (size_t i = 0; i < arrlen(net->weights[l]); ++i) {
+			net->biases[l][i] = randn();
+			for (size_t j = 0; j < arrlen(net->weights[l][i]); ++j) {
+				net->weights[l][i][j] = randn();
+			}
+		}
+	}
 	return net;
 }
 
@@ -54,7 +89,6 @@ void network_destroy(Network *net) {
 
 static void shuffle_set(DataEntry *set) {
 	DataEntry temp;
-	srand(time(NULL));
 	for (int i = 0; i < arrlen(set); ++i) {
 		int r = rand() % arrlen(set);
 		temp = set[i];
@@ -65,7 +99,7 @@ static void shuffle_set(DataEntry *set) {
 
 static DataEntry **get_batches_from_set(DataEntry *set, size_t batch_size) {
 	DataEntry **batches = NULL;
-	for (size_t b = 0; b + batch_size < arrlen(set); ++b) {
+	for (size_t b = 0; b + batch_size <= arrlen(set); ++b) {
 		DataEntry *batch = NULL;
 		for (size_t o = 0; o < batch_size; ++o) {
 			arrpush(batch, set[b+o]);
@@ -124,9 +158,10 @@ void network_update_batch(Network *net, DataEntry *batch, double lrate) {
 		network_backprop(net, batch[b], grad_weights, grad_biases);
 	}
 	
+	double scaler = -(lrate / arrlen(batch));
 	for (size_t l = 0; l < arrlen(net->sizes)-1; ++l) {
-		mat_scale(grad_weights[l], -(lrate / arrlen(batch)));
-		vec_scale(grad_biases[l], -(lrate / arrlen(batch)));
+		mat_scale(grad_weights[l], scaler);
+		vec_scale(grad_biases[l], scaler);
 		mat_operate(net->weights[l], 1, (MatOp){ ADD, grad_weights[l] });
 		vec_operate(net->biases[l], 1, (VecOp){ ADD, grad_biases[l] });
 	}
@@ -136,14 +171,19 @@ void network_update_batch(Network *net, DataEntry *batch, double lrate) {
 	free_vec_arr(grad_biases);
 }
 
-static void sigmoid(vec_t src, vec_t dst) {
+static void sigmoid(vec_t dst, vec_t src) {
 	assert(arrlen(src) == arrlen(dst));
 	for (int i = 0; i < arrlen(src); ++i) {
 		dst[i] = 1.0 / (1.0 + exp(-src[i]));
 	}
 }
 
-static void sigmoid_prime(vec_t src, vec_t dst) {
+static double d_sigmoid_prime(double x) {
+	double e = exp(-x);
+	return e / ((1 + e) * (1 + e));
+}
+
+static void sigmoid_prime(vec_t dst, vec_t src) {
 	assert(arrlen(src) == arrlen(dst));
 	for (int i = 0; i < arrlen(src); ++i) {
 		double e = exp(-src[i]);
@@ -163,19 +203,24 @@ void network_backprop(Network *net, DataEntry entry, mat_t *grad_weights, vec_t 
 	// ---------- //
 	vec_t *D = new_vec_arr(net->sizes);
 	for (ssize_t l = arrlen(D) - 1; l >= 0; --l) {
-		vec_t zp = NULL;
-		arrsetlen(zp, net->sizes[l+1]);
-		sigmoid_prime(zp, Z[l]);
-		if (l == arrlen(D) - 1) {
-			vec_operate(D[l], 2, (VecOp){ LOAD, entry.y }, (VecOp){ SUB, A[l] });
-		} else {
-			matT_vec_dot(D[l], net->weights[l+1], D[l+1]);
-		}
-		vec_operate(D[l], 1, (VecOp){ MUL, zp });
 		// update gradients
-		vec_operate(grad_biases[l], 1, (VecOp){ ADD, D[l] }); 
-		vecT_vec_dot(grad_weights[l], l > 0 ? A[l-1] : entry.x, D[l]);
-		arrfree(zp);
+		vec_t v = l > 0 ? A[l-1] : entry.x;
+		for (size_t i = 0; i < arrlen(D[l]); ++i) {
+			if (l == arrlen(D) - 1) {
+				D[l][i] = A[l][i] - entry.y[i];
+			} else {
+				double val = 0;
+				for (size_t j = 0; j < arrlen(net->weights[l+1]); ++j) {
+					val += net->weights[l+1][j][i] * D[l+1][j];
+				}
+				D[l][i] = val;
+			}
+			D[l][i] *= d_sigmoid_prime(Z[l][i]);
+			grad_biases[l][i] += D[l][i];
+			for (size_t j = 0; j < arrlen(v); ++j) {
+				grad_weights[l][i][j] += v[j] * D[l][i];
+			}
+		}
 	}
 	free_vec_arr(Z);
 	free_vec_arr(A);

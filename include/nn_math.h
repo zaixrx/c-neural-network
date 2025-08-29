@@ -88,7 +88,7 @@ void vec_scale(vec_t src, double scaler) {
 void vec_print(vec_t v) {
 	printf("[ ");
 	for (size_t i = 0; i < arrlen(v); ++i) {
-		printf("%lf", v[i]);
+		printf("%lf ", v[i]);
 	}
 	printf(" ]\n");
 }
@@ -139,7 +139,7 @@ void mat_scale(mat_t mat, double scaler) {
 void mat_print(mat_t m) {
 	printf("[\n");
 	for (size_t i = 0; i < arrlen(m); ++i) {
-		vec_print(m[i]);
+		printf("    "); vec_print(m[i]);
 	}
 	printf("]\n");
 }
@@ -181,7 +181,7 @@ void matT_vec_dot(vec_t dst, mat_t mat, vec_t vec) {
 void mat_print_dims(mat_t mat) {
 	printf("mat.len(): %zu\n[\n", arrlen(mat));
 	for (size_t i = 0; i < arrlen(mat); ++i) {
-		vec_print_dims(mat[i]);
+		printf("    "); vec_print_dims(mat[i]);
 	}
 	printf("]\n");
 }
