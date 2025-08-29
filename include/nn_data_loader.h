@@ -9,31 +9,32 @@ wget https://systemds.apache.org/assets/datasets/mnist/t10k-labels-idx1-ubyte.gz
 #ifndef LOAD_MNIST_H
 #define LOAD_MNIST_H
 
-#include <stdio.h>
 #include <stdint.h>
-#define STB_DS_IMPLEMENTATION
+#include <stdio.h>
 #include "stb_ds.h"
+#include "assert.h"
 
-#define TRAIN_SET_IMAGE "./dataset/train-images-idx3-ubyte"
-#define TRAIN_SET_LABEL "./dataset/train-labels-idx1-ubyte"
+#define PREFIX "data"
+#define TRAIN_SET_IMAGE PREFIX "/train-images-idx3-ubyte"
+#define TRAIN_SET_LABEL PREFIX "/train-labels-idx1-ubyte"
+#define TEST_SET_IMAGE PREFIX "/t10k-images-idx3-ubyte"
+#define TEST_SET_LABEL PREFIX "/t10k-labels-idx1-ubyte"
 #define TRAIN_SET_SIZE 6e4
-#define TEST_SET_IMAGE "./dataset/t10k-images-idx3-ubyte"
-#define TEST_SET_LABEL "./dataset/t10k-labels-idx1-ubyte"
 #define TEST_SET_SIZE 1e4
 #define Y_SIZE 10
 
 typedef struct {
-	float *x;
-	float y;
-} SetEntry;
+	double *x;
+	double *y;
+} DataEntry;
 
-SetEntry *get_training_set();
-SetEntry *get_test_set();
+DataEntry *load_training_set();
+DataEntry *load_test_set();
 
-#endif
+#endif // LOAD_MNIST_H
 
-#define LOAD_MNIST_IMPLEMENTAION
 #ifdef LOAD_MNIST_IMPLEMENTAION
+
 typedef struct {
 	uint8_t *buf;
 	size_t size;
@@ -67,23 +68,29 @@ uint32_t parser_u32(parser_t *p) {
                           ((dims[d] << 24)& 0xFF000000); \
 	}
 
-void parse_digits(parser_t *p, SetEntry *set, size_t set_size) {
+void parse_digits(parser_t *p, DataEntry *set, size_t set_size) {
 	PARSE_HEADER(p);
 	assert(dims_c == 3 && dims[0] == set_size && dims[1] == 28 && dims[2] == 28);
 	size_t res = dims[1] * dims[2];
 	for (int e = 0; e < dims[0]; ++e) {
 		set[e].x = NULL;
+		arrsetlen(set[e].x, res);
 		for (int i = 0; i < res; ++i) {
-			arrpush(set[e].x, (float)parser_u8(p) / 255.0);
+			set[e].x[i] = (double)parser_u8(p) / 255.0;
 		}
 	}
 }
 
-void parse_labels(parser_t *p, SetEntry *set, size_t set_size) {
+void parse_labels(parser_t *p, DataEntry *set, size_t set_size) {
 	PARSE_HEADER(p);
 	assert(dims_c == 1 && dims[0] == set_size);
 	for (int e = 0; e < dims[0]; ++e) {
-		set[e].y = (float)parser_u8(p);
+		uint8_t digit = parser_u8(p);
+		set[e].y = NULL;
+		arrsetlen(set[e].y, Y_SIZE);
+		for (uint8_t i = 0; i < Y_SIZE; ++i) {
+			set[e].y[i] = (double)((i + 1) == digit);
+		}
 	}
 }
 
@@ -106,11 +113,11 @@ void reset_parser(parser_t p) {
 	p.size = p.off = 0;
 }
 
-SetEntry *get_set(const char *image_path, const char *label_path, size_t set_size) {
+DataEntry *load_set(const char *image_path, const char *label_path, size_t set_size) {
 	size_t file_size;
 	uint8_t *buf;
 	parser_t parser;
-	SetEntry *entries = NULL;
+	DataEntry *entries = NULL;
 	arrsetlen(entries, set_size);
 
 	buf = read_file(image_path, &file_size);
@@ -126,11 +133,11 @@ SetEntry *get_set(const char *image_path, const char *label_path, size_t set_siz
 	return entries;
 }
 
-SetEntry *get_training_set() {
-	return get_set(TRAIN_SET_IMAGE, TRAIN_SET_LABEL, TRAIN_SET_SIZE);
+DataEntry *load_training_set() {
+	return load_set(TRAIN_SET_IMAGE, TRAIN_SET_LABEL, TRAIN_SET_SIZE);
 }
 
-SetEntry *get_test_set() {
-	return get_set(TEST_SET_IMAGE, TEST_SET_LABEL, TEST_SET_SIZE);
+DataEntry *load_test_set() {
+	return load_set(TEST_SET_IMAGE, TEST_SET_LABEL, TEST_SET_SIZE);
 }
 #endif
