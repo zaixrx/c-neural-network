@@ -89,8 +89,7 @@ static void free_vec_arr(vec_t *arr) {
 	arrfree(arr);
 }
 
-Network *network_create(size_t *sizes) {
-	Network *net = (Network*)malloc(sizeof(Network));
+void network_create(Network *net, size_t *sizes) {
 	net->sizes = sizes;
 	net->weights = new_mat_arr(sizes);
 	net->biases = new_vec_arr(sizes);
@@ -103,13 +102,11 @@ Network *network_create(size_t *sizes) {
 			}
 		}
 	}
-	return net;
 }
 
 void network_destroy(Network *net) {
 	free_mat_arr(net->weights);
 	free_vec_arr(net->biases);
-	free(net);
 }
 
 static void shuffle_set(DataEntry *set) {
@@ -316,13 +313,15 @@ NN_CODE network_import(Network *net, const char *file_path) {
 	FILE *stream;
 	char *buf;
 	size_t size;
+
 	stream = fopen(file_path, "r");
+
 	if (!stream) return NN_CODE_FAILURE;
 	if (fseek(stream, 0, SEEK_END) == -1) return NN_CODE_FAILURE;
 	if ((size = ftell(stream)) == -1) return NN_CODE_FAILURE;
 	if (fseek(stream, 0, SEEK_SET) == -1) return NN_CODE_FAILURE;
-	size_t w_size = fwrite(buf, size, 1, stream);
-	if (w_size != size) return NN_CODE_FAILURE;
+	assert((buf = malloc(size)));
+	if (fread(buf, 1, size, stream) != size) return NN_CODE_FAILURE;
 	if (fclose(stream) == EOF) return NN_CODE_FAILURE;
 
 	packet_init(buf, size);
@@ -336,6 +335,8 @@ NN_CODE network_import(Network *net, const char *file_path) {
 		sizes[i] = packet_read_u64();
 	}
 	
+	printf("Header { Layers: %zu }\n", L);
+
 	// print body: f64
 	// 	...weights
 	// 	...biases
@@ -351,9 +352,10 @@ NN_CODE network_import(Network *net, const char *file_path) {
 			}
 		}
 		biases[l] = vec_new(sizes[l+1]);
-		for (size_t i = 0; i < arrlen(net->biases[l]); ++i) {
-			net->biases[l][i] = packet_read_f64();
+		for (size_t i = 0; i < arrlen(biases[l]); ++i) {
+			biases[l][i] = packet_read_f64();
 		}
+		printf("Payload[%zu] { mat(%zu x %zu), vec(%zu) }\n", l, sizes[l+1], sizes[l], sizes[l+1]);
 	}
 
 	net->sizes = sizes;
