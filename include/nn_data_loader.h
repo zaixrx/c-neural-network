@@ -14,13 +14,6 @@ wget https://systemds.apache.org/assets/datasets/mnist/t10k-labels-idx1-ubyte.gz
 #include "stb_ds.h"
 #include "assert.h"
 
-#define PREFIX "data"
-#define TRAIN_SET_IMAGE PREFIX "/train-images-idx3-ubyte"
-#define TRAIN_SET_LABEL PREFIX "/train-labels-idx1-ubyte"
-#define TEST_SET_IMAGE PREFIX "/t10k-images-idx3-ubyte"
-#define TEST_SET_LABEL PREFIX "/t10k-labels-idx1-ubyte"
-#define TRAIN_SET_SIZE 6e4
-#define TEST_SET_SIZE 1e4
 #define Y_SIZE 10
 
 typedef struct {
@@ -28,8 +21,8 @@ typedef struct {
 	double *y;
 } DataEntry;
 
-DataEntry *load_training_set();
-DataEntry *load_test_set();
+DataEntry *load_training_set(const char *image_path, const char *label_path, const size_t set_size);
+DataEntry *load_test_set(const char *image_path, const char *label_path, const size_t set_size);
 
 #endif // LOAD_MNIST_H
 
@@ -133,11 +126,11 @@ DataEntry *load_set(const char *image_path, const char *label_path, size_t set_s
 	return entries;
 }
 
-DataEntry *load_training_set() {
-	return load_set(TRAIN_SET_IMAGE, TRAIN_SET_LABEL, TRAIN_SET_SIZE);
+DataEntry *load_training_set(const char *image_path, const char *label_path, const size_t set_size) {
+	return load_set(image_path, label_path, set_size);
 }
 
-DataEntry *load_test_set() {
-	return load_set(TEST_SET_IMAGE, TEST_SET_LABEL, TEST_SET_SIZE);
+DataEntry *load_test_set(const char *image_path, const char *label_path, const size_t set_size) {
+	return load_set(image_path, label_path, set_size);
 }
 #endif

@@ -1,17 +1,18 @@
 #include "nn.h"
-#include "math.h"
 #include "nn_math.h"
-#include "time.h"
 #include "stb_ds.h"
+#include <math.h>
+#include <stdint.h>
+#include <time.h>
 #include <stdio.h>
+#include <stdbool.h>
 
 #define TODO(message) do { fprintf(stderr, "%s:%d: TODO: %s\n", __FILE__, __LINE__, message); abort(); } while(0)
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <math.h>
-#include <time.h>
-#include <stdbool.h>
+typedef enum {
+	AFN_RELU,
+	AFN_SIGMOID,
+} AFN_TYPE;
 
 static double d_sigmoid(double x) {
 	return 1 / (1 + exp(-x));
@@ -123,7 +124,7 @@ static void shuffle_set(DataEntry *set) {
 
 static DataEntry **get_batches_from_set(DataEntry *set, size_t batch_size) {
 	DataEntry **batches = NULL;
-	for (size_t b = 0; b + batch_size <= arrlen(set); ++b) {
+	for (size_t b = 0; b + batch_size <= arrlen(set); b += batch_size) {
 		DataEntry *batch = NULL;
 		for (size_t o = 0; o < batch_size; ++o) {
 			arrpush(batch, set[b+o]);
@@ -230,4 +231,134 @@ void network_backprop(Network *net, DataEntry entry, mat_t *grad_weights, vec_t 
 	free_vec_arr(Z);
 	free_vec_arr(A);
 	free_vec_arr(D);
+}
+
+static struct {
+	char *buf;
+	size_t size;
+	size_t offset;
+} Packet = {0};
+
+void packet_init(char *buf, size_t size) {
+	Packet.buf = buf;
+	Packet.size = size;
+	Packet.offset = 0;
+}
+
+void packet_write_u64(uint64_t val) {
+	assert(Packet.offset < Packet.size && "buffer overflow: packet_write_u64");
+	((uint64_t*)(Packet.buf + Packet.offset))[0] = val;
+	Packet.offset += sizeof(uint64_t);
+}
+
+void packet_write_f64(double val) {
+	assert(Packet.offset < Packet.size && "buffer overflow: packet_write_f64");
+	((double*)(Packet.buf + Packet.offset))[0] = val;
+	Packet.offset += sizeof(double);
+}
+
+uint64_t packet_read_u64() {
+	assert(Packet.offset < Packet.size && "buffer overflow: packet_read_u64");
+	uint64_t val = ((uint64_t*)(Packet.buf + Packet.offset))[0];
+	Packet.offset += sizeof(uint64_t);
+	return val;
+}
+
+double packet_read_f64() {
+	assert(Packet.offset < Packet.size && "buffer overflow: packet_read_f64");
+	double val = ((double*)(Packet.buf + Packet.offset))[0];
+	Packet.offset += sizeof(double);
+	return val;
+}
+
+NN_CODE network_export(Network *net, const char *file_path) {
+	size_t L = arrlen(net->sizes);
+	size_t size = (L + 1) * sizeof(size_t); // header
+	for (size_t l = 1; l < L; ++l) {
+		size += sizeof(double) * net->sizes[l] * (1 + net->sizes[l-1]); // payload
+	}
+	char *buf = malloc(size);
+	if (!buf) return NN_CODE_FAILURE;
+
+	packet_init(buf, size);
+
+	// print_header: u64
+	// 	sizes_length-1, ...sizes[1:]
+	packet_write_u64(L);
+	for (size_t i = 0; i < L; ++i) {
+		packet_write_u64(net->sizes[i]);
+	}
+	
+	// print body: f64
+	// 	...weights
+	// 	...biases
+	for (size_t l = 0; l < L-1; ++l) {
+		for (size_t i = 0; i < arrlen(net->weights[l]); ++i) {
+			for (size_t j = 0; j < arrlen(net->weights[l][i]); ++j) {
+				packet_write_f64(net->weights[l][i][j]);
+			}
+		}
+		for (size_t i = 0; i < arrlen(net->biases[l]); ++i) {
+			packet_write_f64(net->biases[l][i]);
+		}
+	}
+
+	FILE* stream = fopen(file_path, "w");
+	if (!stream) return NN_CODE_FAILURE;
+	size_t w_size = fwrite(buf, size, 1, stream);
+	if (w_size != size) return NN_CODE_FAILURE;
+	if (fclose(stream) == EOF) return NN_CODE_FAILURE;
+
+	return NN_CODE_SUCCESS;
+}
+
+NN_CODE network_import(Network *net, const char *file_path) {
+	FILE *stream;
+	char *buf;
+	size_t size;
+	stream = fopen(file_path, "r");
+	if (!stream) return NN_CODE_FAILURE;
+	if (fseek(stream, 0, SEEK_END) == -1) return NN_CODE_FAILURE;
+	if ((size = ftell(stream)) == -1) return NN_CODE_FAILURE;
+	if (fseek(stream, 0, SEEK_SET) == -1) return NN_CODE_FAILURE;
+	size_t w_size = fwrite(buf, size, 1, stream);
+	if (w_size != size) return NN_CODE_FAILURE;
+	if (fclose(stream) == EOF) return NN_CODE_FAILURE;
+
+	packet_init(buf, size);
+
+	// print_header: u64
+	// 	sizes_length, ...sizes
+	size_t L = packet_read_u64();
+	size_t *sizes = NULL;
+	arrsetlen(sizes, L);
+	for (size_t i = 0; i < L; ++i) {
+		sizes[i] = packet_read_u64();
+	}
+	
+	// print body: f64
+	// 	...weights
+	// 	...biases
+	mat_t *weights = NULL;
+	vec_t *biases  = NULL;
+	arrsetlen(weights, L-1);
+	arrsetlen(biases , L-1);
+	for (size_t l = 0; l < L-1; ++l) {
+		weights[l] = mat_new(sizes[l+1], sizes[l]);
+		for (size_t i = 0; i < arrlen(weights[l]); ++i) {
+			for (size_t j = 0; j < arrlen(weights[l][i]); ++j) {
+				weights[l][i][j] = packet_read_f64();
+			}
+		}
+		biases[l] = vec_new(sizes[l+1]);
+		for (size_t i = 0; i < arrlen(net->biases[l]); ++i) {
+			net->biases[l][i] = packet_read_f64();
+		}
+	}
+
+	net->sizes = sizes;
+	net->weights = weights;
+	net->biases = biases;
+
+	return NN_CODE_SUCCESS;
 }
