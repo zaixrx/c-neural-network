@@ -13,6 +13,30 @@
 #include <time.h>
 #include <stdbool.h>
 
+static double d_sigmoid(double x) {
+	return 1 / (1 + exp(-x));
+}
+
+static void sigmoid(vec_t dst, vec_t src) {
+	assert(arrlen(src) == arrlen(dst));
+	for (int i = 0; i < arrlen(src); ++i) {
+		dst[i] = 1.0 / (1.0 + exp(-src[i]));
+	}
+}
+
+static double d_sigmoid_prime(double x) {
+	double e = exp(-x);
+	return e / ((1 + e) * (1 + e));
+}
+
+static void sigmoid_prime(vec_t dst, vec_t src) {
+	assert(arrlen(src) == arrlen(dst));
+	for (int i = 0; i < arrlen(src); ++i) {
+		double e = exp(-src[i]);
+		dst[i] = e / ((1 + e) * (1 + e));
+	}
+}
+
 static inline double rand_uniform() {
     return (rand() + 1.0) / (RAND_MAX + 2.0); // avoid 0
 }
@@ -139,6 +163,7 @@ int network_test(Network *net, DataEntry entry) {
 	for (size_t l = 0; l < arrlen(Y); ++l) {
 		mat_vec_dot(Y[l], net->weights[l], y);
 		vec_operate(Y[l], 1, (VecOp){ ADD, net->biases[l] });
+		sigmoid(Y[l], Y[l]);
 		y = Y[l];
 	}
 	size_t max = 0;
@@ -169,26 +194,6 @@ void network_update_batch(Network *net, DataEntry *batch, double lrate) {
 	// free gradients
 	free_mat_arr(grad_weights);
 	free_vec_arr(grad_biases);
-}
-
-static void sigmoid(vec_t dst, vec_t src) {
-	assert(arrlen(src) == arrlen(dst));
-	for (int i = 0; i < arrlen(src); ++i) {
-		dst[i] = 1.0 / (1.0 + exp(-src[i]));
-	}
-}
-
-static double d_sigmoid_prime(double x) {
-	double e = exp(-x);
-	return e / ((1 + e) * (1 + e));
-}
-
-static void sigmoid_prime(vec_t dst, vec_t src) {
-	assert(arrlen(src) == arrlen(dst));
-	for (int i = 0; i < arrlen(src); ++i) {
-		double e = exp(-src[i]);
-		dst[i] = e / ((1 + e) * (1 + e));
-	}
 }
 
 void network_backprop(Network *net, DataEntry entry, mat_t *grad_weights, vec_t *grad_biases) {
