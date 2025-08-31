@@ -11,10 +11,8 @@
 #define WIN_H (GRID * SCALE)
 #define FPS 10
 
-static uint8_t image[GRID][GRID];
-
 // Apply a circular brush with linear falloff
-void ApplyBrush(int cx, int cy, int radius) {
+void ApplyBrush(vec_t image, int cx, int cy, int radius) {
 	for (int y = cy - radius; y <= cy + radius; ++y) {
 		for (int x = cx - radius; x <= cx + radius; ++x) {
 			if (x < 0 || x >= GRID || y < 0 || y >= GRID) continue;
@@ -28,9 +26,9 @@ void ApplyBrush(int cx, int cy, int radius) {
     	    	    	float strength = 1.0f - (dist / radius);
     	    	    	uint8_t addVal = (uint8_t)(strength * 255);
 
-    	    	    	int newVal = image[y][x] + addVal;
+    	    	    	int newVal = image[y*GRID+x] + addVal;
     	    	    	if (newVal > 255) newVal = 255;
-    	    	    	image[y][x] = newVal;
+    	    	    	image[y*GRID+x] = newVal;
     	    	}
     	}
 }
@@ -38,6 +36,8 @@ void ApplyBrush(int cx, int cy, int radius) {
 int main(void) {
 	Network net = {0};
 	assert(network_import(&net, "nn.data") == NN_CODE_SUCCESS);
+
+	vec_t image = vec_new(GRID * GRID);
 
 	InitWindow(WIN_W, WIN_H, "digits example");
     	SetTargetFPS(FPS);
@@ -69,31 +69,23 @@ int main(void) {
 					int err = (dx + dy), e2;
 
 					while (1) {
-    	    	    	    	    	    	ApplyBrush(x0, y0, brushRadius);
+    	    	    	    	    	    	ApplyBrush(image, x0, y0, brushRadius);
     	    	    	    	    	    	if (x0 == i && y0 == j) break;
     	    	    	    	    	    	e2 = 2 * err;
     	    	    	    	    	    	if (e2 >= dy) { err += dy; x0 += sx; }
     	    	    	    	    	    	if (dx >= e2) { err += dx; y0 += sy; }
     	    	    	    	    	}
     	    	    	    	} else {
-			    		ApplyBrush(i, j, brushRadius);
+			    		ApplyBrush(image, i, j, brushRadius);
     	    	    	    	}
     	    	    	}
 
-			vec_t vec = vec_new(GRID * GRID); {
-				for (int i = 0; i < GRID; ++i) {
-					for (int j = 0; j < GRID; ++j) {
-						vec[i * GRID + j] = (double)image[i][j] / 255.0;
-					}
-				}
-			}
-			double *out = network_feedforward(&net, vec);
+			double *out = network_feedforward(&net, image);
 			size_t max = 0;
 			for (size_t i = 1; i < arrlen(out); ++i) if (out[i] > out[max]) max = i;
-			printf("%zu with %d percent\n", max+1, (int)(out[max]*100));
+			printf("%zu with %d percent\n", max, (int)(out[max]*100));
 			// vec_print(out);
 			vec_destroy(out);
-			vec_destroy(vec);
     	    	} else {
     	    	    	prevMouse.x = -1;
     	    	    	prevMouse.y = -1;
@@ -104,9 +96,9 @@ int main(void) {
     	    	ClearBackground(BLACK);
     	    	for (int y = 0; y < GRID; ++y) {
     	    	    	for (int x = 0; x < GRID; ++x) {
-    	    	       		if (!image[y][x]) continue;
+    	    	       		if (!image[y*GRID+x]) continue;
 
-    	    	        	Color c = (Color){255, 255, 255, image[y][x]};
+    	    	        	Color c = (Color){255, 255, 255, image[y*GRID+x]};
     	    	        	DrawRectangle(x * SCALE, y * SCALE, SCALE, SCALE, c);
     	    	    	}
     	    	}
