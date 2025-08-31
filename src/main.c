@@ -1,9 +1,6 @@
-#define NN_MATH_IMPLEMENTATION
 #include "nn.h"
 #define LOAD_MNIST_IMPLEMENTAION
 #include "nn_data_loader.h"
-#define STB_DS_IMPLEMENTATION
-#include "stb_ds.h"
 
 int main(int argc, char **argv) {
 	size_t *sizes = NULL;
@@ -13,7 +10,6 @@ int main(int argc, char **argv) {
 	sizes[2] = 10;
 	Network net = {0};
 	if (network_import(&net, "./nn.data") == NN_CODE_FAILURE) {
-		abort();
 		network_create(&net, sizes);
 	}
 	DataEntry *training_set = load_training_set("data/train-images-idx3-ubyte", "data/train-labels-idx1-ubyte", 6e4);

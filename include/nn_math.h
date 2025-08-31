@@ -23,6 +23,7 @@ typedef struct {
 } MatOp;
 
 vec_t vec_new(size_t);
+vec_t vec_clone(vec_t);
 void vec_destroy(vec_t);
 void vec_operate(vec_t, size_t, ...);
 void vec_scale(vec_t, double);
@@ -34,6 +35,7 @@ void mat_vec_dot(vec_t, mat_t, vec_t);
 void matT_vec_dot(vec_t, mat_t, vec_t);
 
 mat_t mat_new(size_t, size_t);
+mat_t mat_clone(mat_t);
 void mat_destroy(mat_t);
 void mat_operate(mat_t, size_t, ...);
 void mat_scale(mat_t, double);
@@ -56,8 +58,18 @@ static inline double operate(double x, double y, OpType o) {
 
 vec_t vec_new(size_t len) {
 	vec_t vec = NULL;
-	for (size_t r = 0; r < len; ++r) {
-		arrpush(vec, 0);
+	arrsetlen(vec, len);
+	for (size_t r = 0; r < arrlen(vec); ++r) {
+		vec[r] = 0;
+	}
+	return vec;
+}
+
+vec_t vec_clone(vec_t src) {
+	vec_t vec = NULL;
+	arrsetlen(vec, arrlen(src));
+	for (size_t r = 0; r < arrlen(vec); ++r) {
+		vec[r] = src[r];
 	}
 	return vec;
 }
@@ -86,11 +98,11 @@ void vec_scale(vec_t src, double scaler) {
 }
 
 void vec_print(vec_t v) {
-	printf("[ ");
+	printf("[");
 	for (size_t i = 0; i < arrlen(v); ++i) {
-		printf("%lf ", v[i]);
+		printf("%zu: %lf, ", i, v[i]);
 	}
-	printf(" ]\n");
+	printf("]\n");
 }
 
 void vec_print_dims(vec_t vec) {
@@ -99,8 +111,18 @@ void vec_print_dims(vec_t vec) {
 
 mat_t mat_new(size_t row, size_t col) {
 	mat_t mat = NULL;
-	for (size_t r = 0; r < row; ++r) {
-		arrpush(mat, vec_new(col));
+	arrsetlen(mat, row);
+	for (size_t r = 0; r < arrlen(mat); ++r) {
+		mat[r] = vec_new(col);
+	}
+	return mat;
+}
+
+mat_t mat_clone(mat_t src) {
+	mat_t mat = NULL;
+	arrsetlen(mat, arrlen(src));
+	for (size_t r = 0; r < arrlen(mat); ++r) {
+		mat[r] = vec_clone(src[r]);
 	}
 	return mat;
 }

@@ -1,11 +1,14 @@
-#include "nn.h"
-#include "nn_math.h"
-#include "stb_ds.h"
 #include <math.h>
 #include <stdint.h>
 #include <time.h>
 #include <stdio.h>
 #include <stdbool.h>
+
+#include "nn.h"
+#define NN_MATH_IMPLEMENTATION
+#include "nn_math.h"
+#define STB_DS_IMPLEMENTATION
+#include "stb_ds.h"
 
 #define TODO(message) do { fprintf(stderr, "%s:%d: TODO: %s\n", __FILE__, __LINE__, message); abort(); } while(0)
 
@@ -155,19 +158,27 @@ void network_SGD(Network *net, size_t epochs, size_t batch_size, double lrate, D
 	}
 }
 
-int network_test(Network *net, DataEntry entry) {
-	vec_t y = entry.x;
-	vec_t *Y = new_vec_arr(net->sizes);
-	for (size_t l = 0; l < arrlen(Y); ++l) {
-		mat_vec_dot(Y[l], net->weights[l], y);
-		vec_operate(Y[l], 1, (VecOp){ ADD, net->biases[l] });
-		sigmoid(Y[l], Y[l]);
-		y = Y[l];
+vec_t network_feedforward(Network *net, vec_t input) {
+	assert(net->sizes[0] == arrlen(input) && "network_feedforward");
+	vec_t x = vec_clone(input), y;
+	for (size_t l = 0; l < arrlen(net->sizes)-1; ++l) {
+		y = vec_new(net->sizes[l+1]);
+		mat_vec_dot(y, net->weights[l], x);
+		vec_operate(y, 1, (VecOp){ ADD, net->biases[l] });
+		sigmoid(y, y);
+		vec_destroy(x);
+		x = y;
 	}
+	return y;
+
+}
+
+int network_test(Network *net, DataEntry entry) {
+	vec_t y = network_feedforward(net, entry.x);
 	size_t max = 0;
 	for (size_t i = 1; i < arrlen(y); ++i) if (y[i] > y[max]) max = i;
-	int ret = entry.y[max] >= 1;
-	free_vec_arr(Y);
+	int ret = entry.y[max] == 1;
+	vec_destroy(y);
 	return ret;
 }
 
