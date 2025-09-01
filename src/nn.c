@@ -93,10 +93,18 @@ static void free_vec_arr(vec_t *arr) {
 	arrfree(arr);
 }
 
-void network_create(Network *net, size_t *sizes) {
+void network_create(Network *net, size_t layers_count, ...) {
+	size_t *sizes = NULL;
+	va_list args;
+	va_start(args, layers_count);
+	for (size_t l = 0; l < layers_count; ++l) {
+		arrpush(sizes, va_arg(args, size_t));
+	}
+	va_end(args);
+
 	net->sizes = sizes;
-	net->weights = new_mat_arr(sizes);
-	net->biases = new_vec_arr(sizes);
+	net->weights = new_mat_arr(net->sizes);
+	net->biases = new_vec_arr(net->sizes);
 	srand(time(NULL));
 	for (size_t l = 0; l < arrlen(net->weights); ++l) {
 		for (size_t i = 0; i < arrlen(net->weights[l]); ++i) {

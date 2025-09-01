@@ -15,7 +15,8 @@ typedef struct {
 	vec_t *biases;
 } Network;
 
-void network_create(Network *net, size_t *sizes);
+// variadic parameter represents network.sizes
+void network_create(Network *net, size_t layers_count, ...);
 void network_destroy(Network *net);
 void network_SGD(Network *net, size_t epochs, size_t batch_size, double lrate, DataEntry *training_set, DataEntry *test_set);
 void network_update_batch(Network *net, DataEntry *batch, double lrate);

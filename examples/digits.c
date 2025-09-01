@@ -1,118 +1,124 @@
 #include "nn.h"
-#include <stddef.h>
-#include <stdint.h>
 #include <raylib.h>
-#include <stdlib.h>
-#include <string.h>
 
-typedef struct {
-	int x;
-	int y;
-} iVector2;
+#define BASE 28
+#define SCALE 10 
+#define SIZE BASE * SCALE
+static uint8_t image[SIZE][SIZE];
 
-#define FPS 60
-#define BASE_SIZE 28
-#define SCALE_SIZE 4
-#define IMAGE_SIZE BASE_SIZE * SCALE_SIZE
-static uint8_t image[IMAGE_SIZE][IMAGE_SIZE] = {0};
+static int max(int x, int y) { return x >= y ? x : y; }
+static int min(int x, int y) { return x < y ? x : y; }
 
-#define PIXEL_SIZE 8
-#define WINDOW_SIZE IMAGE_SIZE * PIXEL_SIZE
-
-static inline iVector2 rasterize(Vector2 pos) {
-	return (iVector2){
-		.x = (int)(pos.x/PIXEL_SIZE),
-		.y = (int)(pos.y/PIXEL_SIZE),
-	};
-}
-
-static inline bool in_bounds(iVector2 pos) {
-	return (0 <= pos.x && pos.x < IMAGE_SIZE) && (0 <= pos.y && pos.y < IMAGE_SIZE);
-}
-
-static inline bool ivec_equal(iVector2 a, iVector2 b) {
-	return a.x == b.x && a.y == b.y;
-}
-
-int main(void) {
-	iVector2 pos, prev_pos = { -1, -1 };
-	InitWindow(WINDOW_SIZE, WINDOW_SIZE, "digits classifier");
-	SetTargetFPS(FPS);
-	while (!WindowShouldClose()) {
-		if (IsKeyDown(KEY_SPACE)) {
-			memset(image, 0, sizeof(image));
+void ApplyBrush(int x, int y, int brush_size) {
+	for (int i = x; i <= min(x+brush_size, SIZE-1); ++i) {
+		for (int j = y; j <= min(y+brush_size, SIZE-1); ++j) {
+			image[i][j] = 255;
 		}
-		pos = rasterize(GetMousePosition());
-		if (in_bounds(pos)) {
-			if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-				if (prev_pos.x == -1 || ivec_equal(pos, prev_pos)) {
-					image[pos.y][pos.x] = 255;
-					prev_pos = pos;
-				} else {
-					int sx = pos.x > prev_pos.x ? 1 : -1;
-					int sy = pos.y > prev_pos.y ? 1 : -1;
-					iVector2 delta = {
-						abs(prev_pos.x - pos.x),
-						abs(prev_pos.y - pos.y)
-					};
-					size_t s = 1;
-					while (prev_pos.x != pos.x || prev_pos.y != pos.y) {
-						if (delta.x > delta.y) {
-							if (delta.y > 0) {
-								int q = delta.x/delta.y;
-								if (s % q == 0 && prev_pos.y != pos.y) {
-									prev_pos.y += sy;
-								}
-							}
-							prev_pos.x += sx;
-						} else {
-							if (delta.x > 0) {
-								int q = delta.y/delta.x;
-								if (s % q == 0 && prev_pos.x != pos.x) {
-									prev_pos.x += sx;
-								}
-							}
-							prev_pos.y += sy;
-						}
-						image[prev_pos.y][prev_pos.x] = 255;
-						++s;
-					}
-				}
-			} else {
-				prev_pos = (iVector2){ -1, -1 };
-			}
-		}
-		BeginDrawing();
-			ClearBackground(BLACK);
-			vec_t smol = vec_new(BASE_SIZE*BASE_SIZE);
-			for (size_t i = 0; i < BASE_SIZE; ++i) {
-				for (size_t j = 0; j < BASE_SIZE; ++j) {
-					double sum = 0;
-					for (size_t bi = 0; bi < SCALE_SIZE; ++bi) {
-						for (size_t bj = 0; bj < SCALE_SIZE; ++bj) {
-							sum += image[bi+i*SCALE_SIZE][bj+j*SCALE_SIZE];
-						}
-					}
-					smol[i*BASE_SIZE+j] = sum / (SCALE_SIZE*SCALE_SIZE);
-				}
-			}
-
-			for (size_t i = 0; i < IMAGE_SIZE; ++i) {
-				for (size_t j = 0; j < IMAGE_SIZE; ++j) {
-					if (image[i][j] == 0) continue;
-					DrawRectangle((j+1)*PIXEL_SIZE, (i+1)*PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE, WHITE);
-				}
-			}
-
-			for (size_t i = 0; i < BASE_SIZE*BASE_SIZE; ++i) {
-				if (!smol[i]) continue;
-				printf("%f\n", smol[i]);
-				Color c = WHITE;
-				c.a = smol[i];
-				DrawRectangle((i%BASE_SIZE)*PIXEL_SIZE, (i/BASE_SIZE)*PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE, c);
-			}
-		EndDrawing();
 	}
-	CloseWindow();
-	return 0;
+}
+
+#define WIN_W (SIZE)
+#define WIN_H (SIZE)
+#define FPS 60
+int main(void) {
+	Network net = {0};
+	assert(network_import(&net, "nn.data") == NN_CODE_SUCCESS);
+
+	InitWindow(WIN_W, WIN_H, "draw a digit");
+    	SetTargetFPS(FPS);
+
+	int brush_size = 15;
+    	Vector2 prev_mouse = (Vector2){ -1, -1 };
+
+	bool predict_mode = false;
+
+    	while (!WindowShouldClose()) {
+		Vector2 mouse = GetMousePosition();
+
+		if (IsKeyDown(KEY_SPACE)) {
+			memset(image, 0, SIZE * SIZE);
+		}
+
+		if (IsKeyPressed(KEY_ENTER)) {
+			predict_mode = !predict_mode;
+		}
+
+    	    	if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
+			int i = (int)mouse.x;
+    	    	    	int j = (int)mouse.y;
+
+    	    	    	if (i >= 0 && i < SIZE && j >= 0 && j < SIZE) {
+    	    	    		if (prev_mouse.x >= 0 && prev_mouse.y >= 0) {
+    	    	    	    	    	int x0 = (int)prev_mouse.x;
+    	    	    	    	    	int y0 = (int)prev_mouse.y;
+
+					if (x0 >= SIZE) x0 = SIZE-1;
+					if (y0 >= SIZE) y0 = SIZE-1;
+
+    	    	    	    	    	int dx = abs(i - x0), sx = x0 < i ? 1 : -1;
+                    			int dy = -abs(j - y0), sy = y0 < j ? 1 : -1;
+					int err = dx + dy;
+
+					for(;;) {
+			    			ApplyBrush(x0, y0, brush_size);
+
+    	    	    	    	    	    	if (x0 == i && y0 == j) break;
+    	    	    	    	    	    	int e2 = 2 * err;
+    	    	    	    	    	    	if (e2 >= dy) { err += dy; x0 += sx; }
+    	    	    	    	    	    	if (dx >= e2) { err += dx; y0 += sy; }
+    	    	    	    	    	}
+    	    	    	    	} else {
+			    		ApplyBrush(i, j, brush_size);
+    	    	    	    	}
+    	    	    	}
+    	    	} else {
+    	    	    	prev_mouse.x = -1;
+    	    	    	prev_mouse.y = -1;
+    	    	}
+    	    	prev_mouse = mouse;
+
+    	    	BeginDrawing();
+    	    	ClearBackground(BLACK);
+		if (predict_mode) {
+			vec_t input = vec_new(BASE*BASE);
+			for (int x = 0; x < BASE; ++x) {
+				for (int y = 0; y < BASE; ++y) {
+					float average = 0;
+					for (int bx = 0; bx < SCALE; ++bx) {
+						for (int by = 0; by < SCALE; ++by) {
+							average += image[x*SCALE+bx][y*SCALE+by];
+						}
+					}
+					average /= (SCALE*SCALE*255.0F);
+					if (average > 0) {
+						// average += .5F;
+						average = average > 1 ? 1 : average;
+					}
+
+					input[x*BASE+y] = average;
+					DrawRectangle(
+						(x+.5)*SCALE, (y+.5)*SCALE,
+						SCALE, SCALE,
+						(Color){255, 255, 255, input[x*BASE+y]*255}
+					);
+				}
+			}
+			double *out = network_feedforward(&net, input);
+			int max = 0; for (int i = 1; i < arrlen(out); ++i) if (out[i] > out[max]) max = i;
+			printf("expected %d\n", max);
+			vec_destroy(out);
+			vec_destroy(input);
+		} else {
+			for (int x = 0; x < SIZE; ++x) {
+				for (int y = 0; y < SIZE; ++y) {
+					if (!image[x][y]) continue;
+					DrawPixel(x, y, (Color){255, 255, 255, image[x][y]});
+				}
+			}
+		}
+    	    	EndDrawing();
+    	}
+
+    	CloseWindow();
+    	return 0;
 }
