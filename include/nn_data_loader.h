@@ -82,7 +82,7 @@ void parse_labels(parser_t *p, DataEntry *set, size_t set_size) {
 		set[e].y = NULL;
 		arrsetlen(set[e].y, Y_SIZE);
 		for (uint8_t i = 0; i < Y_SIZE; ++i) {
-			set[e].y[i] = (double)((i + 1) == digit);
+			set[e].y[i] = (double)(i == digit);
 		}
 	}
 }

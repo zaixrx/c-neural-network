@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <math.h>
 #include <stdint.h>
 #include <time.h>
@@ -138,7 +139,7 @@ void network_SGD(Network *net, size_t epochs, size_t batch_size, double lrate, D
 	for (size_t e = 0; e < epochs; ++e) {
 		shuffle_set(training_set);
 		DataEntry **batches = get_batches_from_set(training_set, batch_size);
-		printf("DEBUG :: analysing %zu batches\n", arrlen(batches));
+		// printf("DEBUG :: analysing %zu batches\n", arrlen(batches));
 		clock_t start = clock();
 		for (size_t b = 0; b < arrlen(batches); ++b) {
 			network_update_batch(net, batches[b], lrate);
@@ -346,7 +347,7 @@ NN_CODE network_import(Network *net, const char *file_path) {
 		sizes[i] = packet_read_u64();
 	}
 	
-	printf("Header { Layers: %zu }\n", L);
+	// printf("Header { Layers: %zu }\n", L);
 
 	// print body: f64
 	// 	...weights
@@ -366,7 +367,7 @@ NN_CODE network_import(Network *net, const char *file_path) {
 		for (size_t i = 0; i < arrlen(biases[l]); ++i) {
 			biases[l][i] = packet_read_f64();
 		}
-		printf("Payload[%zu] { mat(%zu x %zu), vec(%zu) }\n", l, sizes[l+1], sizes[l], sizes[l+1]);
+		// printf("Payload[%zu] { mat(%zu x %zu), vec(%zu) }\n", l, sizes[l+1], sizes[l], sizes[l+1]);
 	}
 
 	net->sizes = sizes;

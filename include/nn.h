@@ -21,6 +21,7 @@ void network_SGD(Network *net, size_t epochs, size_t batch_size, double lrate, D
 void network_update_batch(Network *net, DataEntry *batch, double lrate);
 void network_backprop(Network *net, DataEntry entry, mat_t *grad_weights, vec_t *grad_biases);
 vec_t network_feedforward(Network *net, vec_t input);
+
 int network_test(Network *net, DataEntry entry);
 NN_CODE network_export(Network *net, const char *file_path);
 NN_CODE network_import(Network *net, const char *file_path);
