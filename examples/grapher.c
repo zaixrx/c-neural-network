@@ -6,7 +6,10 @@
 #define WIN_H 600
 #define FPS 60
 
+#define MIN_ZOOM 0.75
+#define MAX_ZOOM 2
 #define UNIT_SIZE 100
+#define MAX_POINTS 10
 
 typedef float(*Func1D)(float);
 
@@ -64,6 +67,10 @@ static inline float ToCartesianX(float x) {
 	return (x-(WIN_W>>1))/UNIT_SIZE;
 }
 
+static inline float ToCartesianY(float y) {
+	return -(y-(WIN_H>>1))/UNIT_SIZE;
+}
+
 static inline float ToWorldY(float y) {
 	return WIN_H-(y*UNIT_SIZE+(WIN_H>>1));
 }
@@ -77,18 +84,31 @@ void GraphFunc1D(Func1D fn, float step, Camera2D camera, float thick, Color colo
 	}
 }
 
-int main(void) {
-	InitWindow(WIN_W, WIN_H, "grapher");
+void DrawPoint(Vector2 pos, float radius, Color color) {
+	DrawCircle(pos.x, pos.y, radius, color);
+}
 
+int main(void) {
+	int points_n = 0;
+	int points_i = 0;
+	Vector2 points[MAX_POINTS];
+	InitWindow(WIN_W, WIN_H, "grapher");
 	Camera2D camera = {0};
 	camera.zoom = 1.0F;
 	Vector2 prev_mouse = { -1, -1 };
 	while (!WindowShouldClose()) {
+		// TODO: zoom
+		// camera.zoom = Clamp(camera.zoom+GetMouseWheelMove()/10.0F, MIN_ZOOM, MAX_ZOOM);
+		Vector2 mouse = GetMousePosition();
 		if (IsKeyDown(KEY_SPACE)) {
 			camera.target = (Vector2){ 0, 0 };
 		}
+		if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+			points[points_i] = Vector2Add(camera.target, mouse);
+			points_i = (points_i+1) % MAX_POINTS;
+			if (points_n < MAX_POINTS) ++points_n;
+		}
 		if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-			Vector2 mouse = GetMousePosition();
 			if (prev_mouse.x >= 0 && prev_mouse.y >= 0) {
 				Vector2 delta = Vector2Subtract(mouse, prev_mouse);
 				camera.target = Vector2Subtract(camera.target, delta);
@@ -102,6 +122,9 @@ int main(void) {
 			BeginMode2D(camera);
 			DrawCartesianGraph(camera, 2.0F, WHITE);
 			GraphFunc1D(expf, 0.1F, camera, 2.0F, BLUE);
+			for (int i = 0; i < points_n; ++i) {
+				DrawPoint(points[i], 10, RED);
+			}
 			EndMode2D();
         	EndDrawing();
     	}
