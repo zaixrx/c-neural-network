@@ -39,6 +39,7 @@ int main(int argc, char **argv) {
 	uint32_t epochs_count = args_uint32(&args);
 
 	Network net = {0};
+	net.activation = NN_SIGMOID;
 	if (network_import(&net, "./nn.data") == NN_CODE_FAILURE) {
 		network_create(&net, 3, 28*28, 50, 10);
 	}
