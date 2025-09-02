@@ -1,8 +1,10 @@
 #include "nn.h"
+#define LOAD_MNIST_IMPLEMENTAION
+#include "nn_data_loader.h"
 #include <raylib.h>
 
 #define BASE 28
-#define SCALE 10 
+#define SCALE 20
 #define SIZE BASE * SCALE
 static uint8_t image[SIZE][SIZE];
 
@@ -12,7 +14,7 @@ static int min(int x, int y) { return x < y ? x : y; }
 void ApplyBrush(int x, int y, int brush_size) {
 	for (int i = x; i <= min(x+brush_size, SIZE-1); ++i) {
 		for (int j = y; j <= min(y+brush_size, SIZE-1); ++j) {
-			image[i][j] = 255;
+			image[i][j] = 0xFF;
 		}
 	}
 }
@@ -23,6 +25,7 @@ void ApplyBrush(int x, int y, int brush_size) {
 int main(void) {
 	Network net = {0};
 	assert(network_import(&net, "nn.data") == NN_CODE_SUCCESS);
+	DataEntry *set = load_test_set("data/t10k-images-idx3-ubyte", "data/t10k-labels-idx1-ubyte", 1e4);
 
 	InitWindow(WIN_W, WIN_H, "draw a digit");
     	SetTargetFPS(FPS);
@@ -89,13 +92,7 @@ int main(void) {
 							average += image[x*SCALE+bx][y*SCALE+by];
 						}
 					}
-					average /= (SCALE*SCALE*255.0F);
-					if (average > 0) {
-						// average += .5F;
-						average = average > 1 ? 1 : average;
-					}
-
-					input[x*BASE+y] = average;
+					input[x*BASE+y] = (average /= SCALE*SCALE*255.0F);
 					DrawRectangle(
 						(x+.5)*SCALE, (y+.5)*SCALE,
 						SCALE, SCALE,
@@ -107,7 +104,6 @@ int main(void) {
 			int max = 0; for (int i = 1; i < arrlen(out); ++i) if (out[i] > out[max]) max = i;
 			printf("expected %d\n", max);
 			vec_destroy(out);
-			vec_destroy(input);
 		} else {
 			for (int x = 0; x < SIZE; ++x) {
 				for (int y = 0; y < SIZE; ++y) {
